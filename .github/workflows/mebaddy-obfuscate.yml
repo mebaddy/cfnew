@@ -1,0 +1,107 @@
+name: MeBaddy Generate and Obfuscate Worker
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - '**'
+    paths:
+      - '明文源吗'
+
+permissions:
+  contents: write
+
+jobs:
+  mebaddy-build-and-obfuscate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Obfuscator
+        run: npm install javascript-obfuscator
+
+      - name: Generate custom obfuscated Worker
+        run: |
+          cat > mebaddy-obfuscate.js << 'EOF'
+          const JavaScriptObfuscator = require('javascript-obfuscator');
+          const fs = require('fs');
+          const path = require('path');
+
+          const sourceFileName = '明文源吗';
+          const outputFileName = 'mebaddy-worker.js';
+          const sourceFilePath = path.join(process.cwd(), sourceFileName);
+
+          if (!fs.existsSync(sourceFilePath)) {
+            console.error(`错误：未找到源文件 ${sourceFileName}`);
+            process.exit(1);
+          }
+
+          const originalCode = fs.readFileSync(sourceFilePath, 'utf8');
+          if (!originalCode || originalCode.trim().length === 0) {
+            console.error(`错误：源文件 ${sourceFileName} 为空`);
+            process.exit(1);
+          }
+
+          // 基于上游混淆规则，仅调整少量输出特征；不改变 CF 配置、绑定、路由或业务逻辑。
+          const obfuscationOptions = {
+            compact: true,
+            controlFlowFlattening: false,
+            controlFlowFlatteningThreshold: 0,
+            deadCodeInjection: false,
+            stringArray: true,
+            stringArrayEncoding: ['rc4'],
+            stringArrayThreshold: 1.0,
+            stringArrayRotate: true,
+            stringArrayShuffle: true,
+            stringArrayWrappersCount: 1,
+            stringArrayWrappersChainedCalls: false,
+            stringArrayWrappersParametersMaxCount: 3,
+            renameGlobals: true,
+            identifierNamesGenerator: 'mangled-shuffled',
+            identifierNamesCache: null,
+            identifiersPrefix: '',
+            renameProperties: false,
+            renamePropertiesMode: 'safe',
+            ignoreImports: false,
+            target: 'browser',
+            numbersToExpressions: false,
+            simplify: false,
+            splitStrings: true,
+            splitStringsChunkLength: 1,
+            transformObjectKeys: false,
+            unicodeEscapeSequence: false,
+            selfDefending: false,
+            debugProtection: false,
+            debugProtectionInterval: 0,
+            disableConsoleOutput: false,
+            domainLock: []
+          };
+
+          const obfuscatedCode = JavaScriptObfuscator
+            .obfuscate(originalCode, obfuscationOptions)
+            .getObfuscatedCode();
+
+          fs.writeFileSync(path.join(process.cwd(), outputFileName), obfuscatedCode, 'utf8');
+          console.log(`成功：${sourceFileName} -> ${outputFileName}`);
+          EOF
+
+          node mebaddy-obfuscate.js
+
+      - name: Commit custom obfuscated Worker
+        run: |
+          git config --global user.name 'GitHub Actions Bot'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add 'mebaddy-worker.js'
+          if git diff --staged --quiet; then
+            echo 'No changes to commit.'
+          else
+            git commit -m 'build: update mebaddy obfuscated worker'
+            git push
+          fi
